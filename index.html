@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widevine ClearKey Player</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/3.1.0/shaka-player.ui.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/3.1.0/shaka-player.compiled.js"></script>
+    <style>
+        body { display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #111; color: #fff; font-family: Arial, sans-serif; }
+        .container { text-align: center; background: #222; padding: 20px; border-radius: 10px; width: 300px; }
+        .container input, .container textarea, .container select { width: 100%; padding: 10px; margin: 10px 0; background: #333; border: none; border-radius: 5px; color: #fff; }
+        .container button { padding: 10px 20px; background: #28a745; color: #fff; border: none; border-radius: 5px; cursor: pointer; }
+        .container button:hover { background: #218838; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); justify-content: center; align-items: center; }
+        .modal-content { width: 80%; height: 80%; background-color: #111; position: relative; }
+        .close { position: absolute; top: 10px; right: 10px; color: #fff; font-size: 24px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Widevine ClearKey Player</h2>
+    <label>MPD URL:</label>
+    <input type="text" id="mpdUrl" placeholder="https://example.com/manifest.mpd">
+    
+    <label>Keys:</label>
+    <textarea id="keys" placeholder="key-id-1:key-1\nkey-id-2:key-2"></textarea>
+    
+    <label>HTTP Referer:</label>
+    <input type="text" id="httpReferer" placeholder="https://example.com">
+    
+    <label>User-Agent:</label>
+    <input type="text" id="userAgent" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64)...">
+    
+    <label>Video Track:</label>
+    <select id="videoTrack">
+        <option value="best">Best Quality</option>
+    </select>
+    
+    <label>Audio Track:</label>
+    <select id="audioTrack">
+        <option value="0">First Audio</option>
+    </select>
+    
+    <button onclick="initializePlayer()">Play</button>
+</div>
+
+<div id="videoModal" class="modal">
+    <div class="modal-content">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <video id="video" controls style="width: 100%; height: 100%;"></video>
+    </div>
+</div>
+
+<script>
+    async function initializePlayer() {
+        const mpdUrl = document.getElementById("mpdUrl").value;
+        const keys = document.getElementById("keys").value.trim();
+        const httpReferer = document.getElementById("httpReferer").value;
+        const userAgent = document.getElementById("userAgent").value;
+        const videoTrack = document.getElementById("videoTrack").value;
+        const audioTrack = document.getElementById("audioTrack").value;
+
+        if (!mpdUrl || !keys) {
+            alert("Please enter both MPD URL and Keys.");
+            return;
+        }
+
+        // Parse ClearKeys
+        const clearKeys = {};
+        keys.split("\n").forEach(line => {
+            const [kid, key] = line.trim().split(":");
+            if (kid && key) clearKeys[kid.trim()] = key.trim();
+        });
+
+        const video = document.getElementById("video");
+        const player = new shaka.Player(video);
+
+        // Set HTTP headers for referer and user-agent
+        player.getNetworkingEngine().registerRequestFilter((type, request) => {
+            if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST || type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                request.headers['Referer'] = httpReferer;
+                request.headers['User-Agent'] = userAgent;
+            }
+        });
+
+        // Configure the player for ClearKey DRM
+        player.configure({
+            drm: {
+                clearKeys: clearKeys
+            }
+        });
+
+        try {
+            await player.load(mpdUrl);
+            document.getElementById("videoModal").style.display = "flex";
+
+            // Select video and audio tracks after loading
+            selectTracks(player, videoTrack, audioTrack);
+            video.play();
+        } catch (error) {
+            console.error("Error loading video:", error);
+            alert("Failed to load video. Please check the console for details.");
+        }
+
+        // Close modal and cleanup function
+        window.closeModal = function() {
+            document.getElementById("videoModal").style.display = "none";
+            player.unload().catch(console.error);
+        }
+    }
+
+    function selectTracks(player, videoTrack, audioTrack) {
+        // Select video track based on quality
+        if (videoTrack === "best") {
+            const variants = player.getVariantTracks();
+            const bestVariant = variants.reduce((best, track) => {
+                return (track.height > best.height) ? track : best;
+            }, variants[0]);
+            player.selectVariantTrack(bestVariant, true);
+        }
+
+        // Select audio track based on audioTrack index
+        const audioTracks = player.getVariantTracks().filter(track => track.audioId);
+        if (audioTracks[audioTrack]) {
+            player.selectVariantTrack(audioTracks[audioTrack], true);
+        }
+    }
+</script>
+
+</body>
+</html>
